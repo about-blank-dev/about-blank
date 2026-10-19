@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>about:blank</title>
 
+  <script>
+    if (location.protocol === 'file:') {
+      location.replace('https://about-blank-dev.github.io/about-blank/about.html');
+    }
+  </script>
+
   <link rel="icon" href="https://cdn.iconscout.com/icon/free/png-256/free-open-in-new-icon-svg-download-png-1513791.png">
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
