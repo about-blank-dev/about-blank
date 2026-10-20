@@ -5,12 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>about:blank</title>
 
-  <script>
-    if (location.protocol !== 'file:') {
-      location.replace('https://about-blank-dev.github.io/about-blank/about.html');
-    }
-  </script>
-
   <link rel="icon" href="https://cdn.iconscout.com/icon/free/png-256/free-open-in-new-icon-svg-download-png-1513791.png">
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -570,9 +564,24 @@
     .ai-retry-btn { display: block; width: auto; margin-top: 10px; padding: 6px 12px; font-size: 12px; font-weight: 500; background: var(--item-bg); color: var(--text); border: 1px solid var(--card-border); border-radius: 8px; cursor: pointer; }
     .ai-retry-btn:hover { border-color: var(--accent); filter: none; transform: none; }
     .ai-model-note { margin-top: 8px; font-size: 11px; color: var(--muted); }
+
+    .current-page-viewer { position: fixed; inset: 0; z-index: 10000; display: flex; flex-direction: column; background: #000; }
+    .current-page-viewer[hidden] { display: none; }
+    .current-page-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; height: 42px; padding: 0 12px; background: var(--card); color: var(--text); }
+    .current-page-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+    .current-page-content { flex: 1; min-height: 0; }
+    .current-page-content iframe, .current-page-content object { width: 100%; height: 100%; border: 0; display: block; background: #000; }
   </style>
 </head>
 <body>
+
+  <div class="current-page-viewer" id="currentPageViewer" hidden>
+    <div class="current-page-toolbar">
+      <span class="current-page-title" id="currentPageTitle"></span>
+      <button class="ghost" id="closeCurrentPage" type="button">Fermer</button>
+    </div>
+    <div class="current-page-content" id="currentPageContent"></div>
+  </div>
 
   <!-- ======= BOUTON MESSAGERIE (BAS GAUCHE) ======= -->
   <div id="msg-bubble" onclick="toggleMsgWindow()" title="Messagerie">
@@ -690,6 +699,7 @@
             <select id="openModeSelect">
               <option value="blank" id="openModeBlank">about:blank</option>
               <option value="file" id="openModeFile">Fichier</option>
+              <option value="current" id="openModeCurrent">Dans cette page (Embed/Blob)</option>
             </select>
           </div>
           <div>
@@ -813,7 +823,7 @@
       fr: {
         title: "about:blank", titleSettings: "Réglages", labelTheme: "Thème :", labelLang: "Langue :", optSystem: "Système", optDark: "Sombre", optLight: "Clair",
         secConfig: "Configuration", labelCloak: "Onglet :", cloakNone: "Aucun (about:blank)", labelMethod: "Méthode :",
-        labelOpenMode: "Mode d'ouverture :", openModeBlank: "about:blank", openModeFile: "Fichier", cloakFormative: "Formative", open: "Ouvrir (Caché)", openNew: "Normal", clearAll: "Tout réinitialiser",
+        labelOpenMode: "Mode d'ouverture :", openModeBlank: "about:blank", openModeFile: "Fichier", openModeCurrent: "Dans cette page (Embed/Blob)", closeCurrentPage: "Fermer", currentPageCorsErr: "Erreur Proxy CORS. Activez sur https://cors-anywhere.herokuapp.com/corsdemo", currentPageFetchErr: "Erreur CORS. Utilisez la méthode CORS Anywhere ou iFrame.", cloakFormative: "Formative", open: "Ouvrir (Caché)", openNew: "Normal", clearAll: "Tout réinitialiser",
         secFav: '<span class="section-icon">★</span> Favoris', secHist: '<span class="section-icon">↺</span> Historique',
         empty: "Vide", confirmReset: "Êtes-vous sûr de vouloir réinitialiser l'app ? (Cette action est définitive).",
         confirmClearHist: "Effacer l'historique ?", invalidUrl: "URL invalide", clearBtn: "Effacer",
@@ -846,7 +856,7 @@
       en: {
         title: "about:blank", titleSettings: "Settings", labelTheme: "Theme:", labelLang: "Language:", optSystem: "System", optDark: "Dark", optLight: "Light",
         secConfig: "Settings", labelCloak: "Tab Cloak:", cloakNone: "None (about:blank)", labelMethod: "Method:",
-        labelOpenMode: "Open mode:", openModeBlank: "about:blank", openModeFile: "File", cloakFormative: "Formative", open: "Open (Hidden)", openNew: "Normal", clearAll: "Reset All",
+        labelOpenMode: "Open mode:", openModeBlank: "about:blank", openModeFile: "File", openModeCurrent: "In this page (Embed/Blob)", closeCurrentPage: "Close", currentPageCorsErr: "CORS Proxy error. Activate it at https://cors-anywhere.herokuapp.com/corsdemo", currentPageFetchErr: "CORS error. Use the CORS Anywhere or iFrame method.", cloakFormative: "Formative", open: "Open (Hidden)", openNew: "Normal", clearAll: "Reset All",
         secFav: '<span class="section-icon">★</span> Favorites', secHist: '<span class="section-icon">↺</span> History',
         empty: "Empty", confirmReset: "Are you sure you want to reset the app? (This action is permanent).",
         confirmClearHist: "Clear history?", invalidUrl: "Invalid URL", clearBtn: "Clear",
@@ -1225,6 +1235,8 @@
       document.getElementById('labelOpenMode').textContent = t.labelOpenMode;
       document.getElementById('openModeBlank').textContent = t.openModeBlank;
       document.getElementById('openModeFile').textContent = t.openModeFile;
+      document.getElementById('openModeCurrent').textContent = t.openModeCurrent;
+      document.getElementById('closeCurrentPage').textContent = t.closeCurrentPage;
       document.getElementById('cloakFormative').textContent = t.cloakFormative;
       document.getElementById('ai-title').textContent = t.aiTitle;
       document.getElementById('open').textContent = t.open;
@@ -1404,6 +1416,62 @@
       return true;
     }
 
+    let currentPageBlobUrl = null, currentPageLoad = 0;
+    function closeCurrentPageViewer() {
+      const viewer = document.getElementById('currentPageViewer');
+      currentPageLoad++;
+      document.getElementById('currentPageContent').replaceChildren();
+      viewer.hidden = true;
+      if (currentPageBlobUrl) {
+        URL.revokeObjectURL(currentPageBlobUrl);
+        currentPageBlobUrl = null;
+      }
+    }
+
+    async function openInCurrentPage(url, method) {
+      const viewer = document.getElementById('currentPageViewer');
+      const content = document.getElementById('currentPageContent');
+      const lang = getStore('app_lang', '"fr"');
+      const t = translations[lang] || translations.fr;
+      closeCurrentPageViewer();
+      const loadId = currentPageLoad;
+      viewer.hidden = false;
+      document.getElementById('currentPageTitle').textContent = url;
+
+      if (method === 'iframe') {
+        const frame = document.createElement('iframe');
+        frame.title = url;
+        frame.src = url;
+        content.appendChild(frame);
+      } else if (method === 'object') {
+        const object = document.createElement('object');
+        object.type = 'text/html';
+        object.data = url;
+        content.appendChild(object);
+      } else {
+        try {
+          const target = method === 'cors' ? 'https://cors-anywhere.herokuapp.com/' + url : url;
+          const response = await fetch(target);
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          const html = await response.text();
+          if (loadId !== currentPageLoad) return;
+          currentPageBlobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+          const frame = document.createElement('iframe');
+          frame.title = url;
+          frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads');
+          frame.src = currentPageBlobUrl;
+          content.appendChild(frame);
+        } catch (error) {
+          if (loadId !== currentPageLoad) return;
+          console.error(error);
+          alert(method === 'cors' ? t.currentPageCorsErr : t.currentPageFetchErr);
+          closeCurrentPageViewer();
+        }
+      }
+    }
+
+    document.getElementById('closeCurrentPage').onclick = closeCurrentPageViewer;
+
     document.getElementById('open').onclick = async () => {
       const url = resolveUrl(urlInput.value.trim());
       const lang = getStore('app_lang', '"fr"');
@@ -1415,7 +1483,9 @@
       const method = document.getElementById('methodSelect').value;
       const openMode = document.getElementById('openModeSelect').value;
 
-      if(openMode === 'file') {
+      if (openMode === 'current') {
+        await openInCurrentPage(url, method);
+      } else if(openMode === 'file') {
         const iframeHtml = `<!DOCTYPE html>
 <html>
 <head>
@@ -2384,6 +2454,12 @@ Réponds toujours en français sauf si l'utilisateur écrit en anglais.`;
     window.renderAccount = render;
     render();
   })();
+  </script>
+  <script>
+    window.addEventListener('beforeunload', function (e) {
+        e.preventDefault();
+        e.returnValue = '';
+    });
   </script>
 </body>
 </html>
