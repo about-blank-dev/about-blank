@@ -6,7 +6,7 @@
   <title>about:blank</title>
 
   <script>
-    if (location.protocol === 'file:') {
+    if (location.protocol !== 'file:') {
       location.replace('https://about-blank-dev.github.io/about-blank/about.html');
     }
   </script>
