@@ -274,6 +274,8 @@
         <h2>Notifications</h2>
         <p id="managed-notification-status">État des notifications en cours de vérification…</p>
         <button class="action primary" id="manage-notifications" type="button">Désactiver les notifications</button>
+        <button class="action" id="test-notification" type="button">Afficher une notification de test</button>
+        <p class="manage-status" id="test-notification-status" role="status" aria-live="polite"></p>
         <div class="preference-list" aria-label="Types de notifications">
           <label class="preference-row"><input id="pref-global" type="checkbox"><span>Chat global</span></label>
           <label class="preference-row"><input id="pref-conv" type="checkbox"><span>Conversations privées</span></label>
@@ -328,6 +330,8 @@
       const siteFooter = document.getElementById('site-footer');
       const managedNotificationStatus = document.getElementById('managed-notification-status');
       const manageNotificationsButton = document.getElementById('manage-notifications');
+      const testNotificationButton = document.getElementById('test-notification');
+      const testNotificationStatus = document.getElementById('test-notification-status');
       const globalPreference = document.getElementById('pref-global');
       const conversationPreference = document.getElementById('pref-conv');
       const preferencesStatus = document.getElementById('prefs-status');
@@ -588,6 +592,28 @@
       globalPreference.addEventListener('change', () => saveNotificationPreference('global', globalPreference));
       conversationPreference.addEventListener('change', () => saveNotificationPreference('conv', conversationPreference));
       manageNotificationsButton.addEventListener('click', toggleManagedNotifications);
+      testNotificationButton.addEventListener('click', async () => {
+        testNotificationButton.disabled = true;
+        testNotificationStatus.textContent = 'Envoi de la notification de test…';
+        try {
+          if (!('Notification' in window) || Notification.permission !== 'granted') {
+            throw new Error('Autorise les notifications du navigateur avant le test.');
+          }
+          const registration = await navigator.serviceWorker.getRegistration(new URL('sw.js', location.href));
+          if (!registration) throw new Error('Le service worker de notifications n’est pas installé.');
+          await registration.showNotification('Notification de test', {
+            body: 'Les notifications de Chrome sont affichées sur cet appareil.',
+            tag: 'about-blank-notification-test',
+            renotify: true
+          });
+          testNotificationStatus.textContent = 'Notification locale envoyée. Ce test ne vérifie pas l’envoi des push par le serveur.';
+        } catch (error) {
+          console.error(error);
+          testNotificationStatus.textContent = error.message;
+        } finally {
+          testNotificationButton.disabled = false;
+        }
+      });
 
       async function registerSubscription(subscription) {
         const token = localStorage.getItem('cf_jwt');
