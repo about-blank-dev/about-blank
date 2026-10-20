@@ -841,7 +841,8 @@
         appAllowHint: "L'app pourra sauvegarder ses données, mais elle aura aussi accès aux données du site (chat, notes). À n'activer que pour une app de confiance.",
         appCancel: "Annuler", appCreate: "Ajouter", appSaveBtn: "Enregistrer", appDelete: "Supprimer", appEdit: "Modifier",
         appConfirmDelete: "Supprimer cette app ?", appErrFile: "Choisis un fichier HTML.", appErrType: "Ce fichier n'est pas un fichier HTML.",
-        appErrSize: "Fichier trop gros (25 Mo max).", appErrIcon: "Lien d'icône invalide.",
+        appErrSize: "Fichier de plus de 25 Mo : utilise Chrome ou un navigateur compatible pour autoriser l'accès direct au fichier.", appFilePermissionErr: "Autorise l'accès au fichier pour ouvrir cette app.", appFileAccessErr: "Impossible d'accéder au fichier sélectionné. Sélectionne-le à nouveau.",
+        appLargeFileLabel: " (fichier local, autorisation requise à l'ouverture)", appErrIcon: "Lien d'icône invalide.",
         appErrStorage: "Impossible d'enregistrer : espace de stockage plein ou indisponible.",
         appEmpty: "Aucune app. Ajoute un fichier HTML.", appMin: "Réduire", appToWindow: "Fenêtre", appToFull: "Plein écran",
         appClose: "Fermer", appBackground: "En arrière-plan", appLoadErr: "Impossible d'ouvrir cette app.",
@@ -874,7 +875,8 @@
         appAllowHint: "The app will be able to save its data, but it will also have access to the site's data (chat, notes). Only enable for an app you trust.",
         appCancel: "Cancel", appCreate: "Add", appSaveBtn: "Save", appDelete: "Delete", appEdit: "Edit",
         appConfirmDelete: "Delete this app?", appErrFile: "Choose an HTML file.", appErrType: "This is not an HTML file.",
-        appErrSize: "File too large (25 MB max).", appErrIcon: "Invalid icon link.",
+        appErrSize: "Files over 25 MB require Chrome or a compatible browser that can grant direct file access.", appFilePermissionErr: "Allow file access to open this app.", appFileAccessErr: "Could not access the selected file. Select it again.",
+        appLargeFileLabel: " (local file; permission required when opened)", appErrIcon: "Invalid icon link.",
         appErrStorage: "Could not save: storage is full or unavailable.",
         appEmpty: "No apps yet. Add an HTML file.", appMin: "Minimize", appToWindow: "Window", appToFull: "Full screen",
         appClose: "Close", appBackground: "In background", appLoadErr: "Could not open this app.",
@@ -1954,7 +1956,7 @@ Réponds toujours en français sauf si l'utilisateur écrit en anglais.`;
         t.onabort = () => rej(t.error || new Error('abort'));
       });
     }
-    const dbPut = (id, html) => dbTx('readwrite', st => st.put({ id, html }));
+    const dbPut = (id, content) => dbTx('readwrite', st => st.put(Object.assign({ id }, content)));
     const dbGet = id => dbTx('readonly', st => st.get(id));
     const dbDel = id => dbTx('readwrite', st => st.delete(id));
 
@@ -2233,10 +2235,28 @@ Réponds toujours en français sauf si l'utilisateur écrit en anglais.`;
       if (r0) { if (r0.mode === 'min') setMode(id, r0.prev || 'full'); else focusApp(id); return; }
       if (launching.has(id)) return;
       launching.add(id);
+      let usesFileHandle = false;
       try {
         const rec = await dbGet(id);
-        if (!rec || typeof rec.html !== 'string') { alert(T().appLoadErr); return; }
-        const blobUrl = URL.createObjectURL(new Blob([rec.html], { type: 'text/html' }));
+        if (!rec) { alert(T().appLoadErr); return; }
+        let source;
+        if (typeof rec.html === 'string') {
+          source = new Blob([rec.html], { type: 'text/html' });
+        } else if (rec.handle && typeof rec.handle.getFile === 'function') {
+          usesFileHandle = true;
+          let permission = await rec.handle.queryPermission({ mode: 'read' });
+          if (permission !== 'granted') permission = await rec.handle.requestPermission({ mode: 'read' });
+          if (permission !== 'granted') {
+            const error = new Error('File permission denied');
+            error.code = 'FILE_PERMISSION_DENIED';
+            throw error;
+          }
+          source = await rec.handle.getFile();
+        } else {
+          alert(T().appLoadErr);
+          return;
+        }
+        const blobUrl = URL.createObjectURL(source);
         const el = buildWindow(a);
         const iframe = el.querySelector('iframe');
         iframe.setAttribute('sandbox', sandboxFor(a));
@@ -2248,8 +2268,10 @@ Réponds toujours en français sauf si l'utilisateur écrit en anglais.`;
         wireWindow(id, r);
         iframe.src = blobUrl;
         setMode(id, 'full');
-      } catch (e) {
-        alert(T().appLoadErr);
+      } catch (error) {
+        console.error(error);
+        const t = T();
+        alert(error.code === 'FILE_PERMISSION_DENIED' ? t.appFilePermissionErr : (usesFileHandle ? t.appFileAccessErr : t.appLoadErr));
       } finally { launching.delete(id); }
     }
 
@@ -2276,7 +2298,7 @@ Réponds toujours en français sauf si l'utilisateur écrit en anglais.`;
       $('appModalTitle').textContent = a ? t.appModalEdit : t.appModalAdd;
       $('appFile').value = '';
       $('appFileBtn').textContent = a ? t.appReplaceFile : t.appChooseFile;
-      $('appFileName').textContent = a ? (a.file || a.base) : t.appNoFile;
+      $('appFileName').textContent = a ? (a.file || a.base) + (a.size > MAX_SIZE ? t.appLargeFileLabel : '') : t.appNoFile;
       $('appName').value = a ? (a.name || '') : '';
       $('appName').placeholder = a ? a.base : t.appNamePh;
       $('appIconUrl').value = a ? (a.iconUrl || '') : '';
@@ -2289,21 +2311,47 @@ Réponds toujours en français sauf si l'utilisateur écrit en anglais.`;
     }
     function closeAppModal() { $('modal-app').classList.remove('open'); }
 
-    $('appFileBtn').onclick = () => $('appFile').click();
-    $('appFile').onchange = async e => {
-      const f = e.target.files && e.target.files[0]; if (!f) return;
+    async function selectAppFile(file, handle) {
       setErr('');
+      pending = null;
       const t = T();
-      if (!/\.(html?|xhtml)$/i.test(f.name) && f.type !== 'text/html') { setErr(t.appErrType); e.target.value = ''; return; }
-      if (f.size > MAX_SIZE) { setErr(t.appErrSize); e.target.value = ''; return; }
-      let html;
-      try { html = await f.text(); } catch (err) { setErr(t.appErrType); return; }
-      if (!html || !html.trim()) { setErr(t.appErrType); return; }
-      const base = f.name.replace(/\.(html?|xhtml)$/i, '') || 'App';
-      pending = { html, file: f.name, base, autoIcon: extractIcon(html), size: f.size };
-      $('appFileName').textContent = f.name;
+      if (!/\.(html?|xhtml)$/i.test(file.name) && file.type !== 'text/html') { setErr(t.appErrType); return; }
+      if (file.size > MAX_SIZE && !handle) { setErr(t.appErrSize); return; }
+      const base = file.name.replace(/\.(html?|xhtml)$/i, '') || 'App';
+      let html = null;
+      if (file.size <= MAX_SIZE) {
+        try { html = await file.text(); } catch (error) { console.error(error); setErr(t.appErrType); return; }
+        if (!html || !html.trim()) { setErr(t.appErrType); return; }
+      }
+      pending = {
+        html, handle: file.size > MAX_SIZE ? handle : null, file: file.name, base,
+        autoIcon: html ? extractIcon(html) : '', size: file.size
+      };
+      $('appFileName').textContent = file.name + (file.size > MAX_SIZE ? t.appLargeFileLabel : '');
       $('appName').placeholder = base;
       updatePreview();
+    }
+    async function chooseAppFile() {
+      setErr('');
+      if (typeof window.showOpenFilePicker !== 'function') { $('appFile').click(); return; }
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          multiple: false,
+          types: [{ description: 'Fichier HTML', accept: { 'text/html': ['.html', '.htm', '.xhtml'] } }]
+        });
+        await selectAppFile(await handle.getFile(), handle);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error(error);
+        setErr(T().appFileAccessErr);
+      }
+    }
+    $('appFileBtn').onclick = chooseAppFile;
+    $('appFile').onchange = async e => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try { await selectAppFile(file, null); }
+      finally { e.target.value = ''; }
     };
     $('appName').addEventListener('input', updatePreview);
     $('appIconUrl').addEventListener('input', updatePreview);
@@ -2325,7 +2373,7 @@ Réponds toujours en français sauf si l'utilisateur écrit en anglais.`;
       const htmlChanged = !!pending;
       $('appSave').disabled = true;
       try {
-        if (pending) await dbPut(rec.id, pending.html);
+        if (pending) await dbPut(rec.id, pending.handle ? { handle: pending.handle } : { html: pending.html });
         const next = a ? apps.map(x => x.id === rec.id ? rec : x) : apps.concat([rec]);
         if (!saveMeta(next)) { if (!a) await dbDel(rec.id).catch(() => {}); throw new Error('meta'); }
         apps = next;
