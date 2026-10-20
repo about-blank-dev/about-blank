@@ -706,7 +706,7 @@
             <label id="labelMethod" style="margin-bottom:5px; display:block; font-size: 11px;">Méthode :</label>
             <select id="methodSelect">
               <option value="iframe">iFrame (Embed)</option>
-              <option value="object">Object (Blob)</option>
+              <option value="object">iFrame isolée (mode Object)</option>
               <option value="cors">CORS Anywhere (Proxy)</option>
               <option value="inject">Inject (Fetch)</option>
             </select>
@@ -838,7 +838,7 @@
         appChooseFile: "Choisir un fichier HTML", appReplaceFile: "Remplacer le fichier", appNoFile: "Aucun fichier choisi",
         appNamePh: "Nom (vide = nom du fichier)", appIconPh: "Lien de l'icône (vide = icône du fichier)",
         appAllow: "Autoriser le stockage de l'app",
-        appAllowHint: "L'app pourra sauvegarder ses données, mais elle aura aussi accès aux données du site (chat, notes). À n'activer que pour une app de confiance.",
+        appAllowHint: "L'app pourra sauvegarder ses données et accéder aux données du site (chat, notes). Cela désactive l'isolation de son origine et lui permet de modifier cette page. À n'activer que pour une app de confiance.",
         appCancel: "Annuler", appCreate: "Ajouter", appSaveBtn: "Enregistrer", appDelete: "Supprimer", appEdit: "Modifier",
         appConfirmDelete: "Supprimer cette app ?", appErrFile: "Choisis un fichier HTML.", appErrType: "Ce fichier n'est pas un fichier HTML.",
         appErrSize: "Fichier de plus de 25 Mo : utilise Chrome ou un navigateur compatible pour autoriser l'accès direct au fichier.", appFilePermissionErr: "Autorise l'accès au fichier pour ouvrir cette app.", appFileAccessErr: "Impossible d'accéder au fichier sélectionné. Sélectionne-le à nouveau.",
@@ -872,7 +872,7 @@
         appChooseFile: "Choose an HTML file", appReplaceFile: "Replace file", appNoFile: "No file chosen",
         appNamePh: "Name (empty = file name)", appIconPh: "Icon link (empty = file's icon)",
         appAllow: "Allow app storage",
-        appAllowHint: "The app will be able to save its data, but it will also have access to the site's data (chat, notes). Only enable for an app you trust.",
+        appAllowHint: "The app will be able to save its data and access the site's data (chat, notes). This disables origin isolation and lets it modify this page. Only enable for an app you trust.",
         appCancel: "Cancel", appCreate: "Add", appSaveBtn: "Save", appDelete: "Delete", appEdit: "Edit",
         appConfirmDelete: "Delete this app?", appErrFile: "Choose an HTML file.", appErrType: "This is not an HTML file.",
         appErrSize: "Files over 25 MB require Chrome or a compatible browser that can grant direct file access.", appFilePermissionErr: "Allow file access to open this app.", appFileAccessErr: "Could not access the selected file. Select it again.",
@@ -1395,39 +1395,64 @@
       }
     }
 
+    const REMOTE_FRAME_SANDBOX = 'allow-scripts allow-forms allow-popups allow-modals allow-downloads';
+
+    function htmlWithBase(html, baseUrl) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      let base = doc.querySelector('base');
+      if (!base) {
+        base = doc.createElement('base');
+        doc.head.prepend(base);
+      }
+      base.setAttribute('href', baseUrl);
+      return '<!doctype html>\n' + doc.documentElement.outerHTML;
+    }
+
+    function appendRemoteFrame(container, url) {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', REMOTE_FRAME_SANDBOX);
+      frame.style.cssText = "width:100%; height:100%; border:none;";
+      frame.src = url;
+      container.appendChild(frame);
+    }
+
     async function buildWindowContent(w, url, method) {
       w.document.body.style.cssText = "height:100vh; margin:0; overflow:hidden; background:#000;";
-      if(method === 'iframe') {
-        const ifr = w.document.createElement('iframe');
-        ifr.style.cssText = "width:100%; height:100%; border:none;"; ifr.src = url; w.document.body.appendChild(ifr);
-      } else if(method === 'object') {
-        const obj = w.document.createElement('object');
-        obj.style.cssText = "width:100%; height:100%; border:none;"; obj.data = url; w.document.body.appendChild(obj);
+      if (method === 'iframe' || method === 'object') {
+        appendRemoteFrame(w.document.body, url);
       } else if(method === 'cors') {
         try {
           const proxyUrl = "https://cors-anywhere.herokuapp.com/";
           const res = await fetch(proxyUrl + url);
-          if(!res.ok) throw new Error();
-          let html = await res.text(); w.document.write(html);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const html = await res.text();
+          const frame = w.document.createElement('iframe');
+          frame.setAttribute('sandbox', REMOTE_FRAME_SANDBOX);
+          frame.style.cssText = "width:100%; height:100%; border:none;";
+          frame.srcdoc = htmlWithBase(html, res.url || url);
+          w.document.body.appendChild(frame);
         } catch(e) { alert("Erreur Proxy CORS. Activez sur https://cors-anywhere.herokuapp.com/corsdemo"); w.close(); return false; }
       } else {
         try {
-          const res = await fetch(url); let html = await res.text(); w.document.write(html);
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const html = await res.text();
+          const frame = w.document.createElement('iframe');
+          frame.setAttribute('sandbox', REMOTE_FRAME_SANDBOX);
+          frame.style.cssText = "width:100%; height:100%; border:none;";
+          frame.srcdoc = htmlWithBase(html, res.url || url);
+          w.document.body.appendChild(frame);
         } catch(e) { alert("CORS Error. Utilisez la méthode CORS Anywhere ou iFrame."); w.close(); return false; }
       }
       return true;
     }
 
-    let currentPageBlobUrl = null, currentPageLoad = 0;
+    let currentPageLoad = 0;
     function closeCurrentPageViewer() {
       const viewer = document.getElementById('currentPageViewer');
       currentPageLoad++;
       document.getElementById('currentPageContent').replaceChildren();
       viewer.hidden = true;
-      if (currentPageBlobUrl) {
-        URL.revokeObjectURL(currentPageBlobUrl);
-        currentPageBlobUrl = null;
-      }
     }
 
     async function openInCurrentPage(url, method) {
@@ -1440,16 +1465,8 @@
       viewer.hidden = false;
       document.getElementById('currentPageTitle').textContent = url;
 
-      if (method === 'iframe') {
-        const frame = document.createElement('iframe');
-        frame.title = url;
-        frame.src = url;
-        content.appendChild(frame);
-      } else if (method === 'object') {
-        const object = document.createElement('object');
-        object.type = 'text/html';
-        object.data = url;
-        content.appendChild(object);
+      if (method === 'iframe' || method === 'object') {
+        appendRemoteFrame(content, url);
       } else {
         try {
           const target = method === 'cors' ? 'https://cors-anywhere.herokuapp.com/' + url : url;
@@ -1457,11 +1474,10 @@
           if (!response.ok) throw new Error('HTTP ' + response.status);
           const html = await response.text();
           if (loadId !== currentPageLoad) return;
-          currentPageBlobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
           const frame = document.createElement('iframe');
           frame.title = url;
-          frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads');
-          frame.src = currentPageBlobUrl;
+          frame.setAttribute('sandbox', REMOTE_FRAME_SANDBOX);
+          frame.srcdoc = htmlWithBase(html, response.url || url);
           content.appendChild(frame);
         } catch (error) {
           if (loadId !== currentPageLoad) return;
@@ -1497,15 +1513,17 @@
   <style>* { margin:0; padding:0; } html,body { width:100%; height:100%; overflow:hidden; background:#000; }</style>
 </head>
 <body>
-  <iframe src="${url}" style="width:100%;height:100vh;border:none;"></iframe>
+  <iframe sandbox="${REMOTE_FRAME_SANDBOX}" src="${url}" style="width:100%;height:100vh;border:none;"></iframe>
 </body>
 </html>`;
         const blob = new Blob([iframeHtml], { type: 'text/html' });
         const blobUrl = URL.createObjectURL(blob);
-        window.open(blobUrl, '_blank');
+        window.open(blobUrl, '_blank', 'noopener,noreferrer');
         setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
       } else {
         const w = window.open('about:blank', '_blank');
+        if (!w) return;
+        w.opener = null;
         applyCloakToWindow(w, cloakKey);
         const ok = await buildWindowContent(w, url, method);
         if(ok) w.document.close();
@@ -1516,7 +1534,7 @@
 
     document.getElementById('openNew').onclick = () => {
       const url = resolveUrl(urlInput.value.trim());
-      if(url) { let h = getStore('hist').filter(u => u !== url); h.unshift(url); setStore('hist', h.slice(0, 10)); init(); window.open(url, '_blank'); }
+      if(url) { let h = getStore('hist').filter(u => u !== url); h.unshift(url); setStore('hist', h.slice(0, 10)); init(); window.open(url, '_blank', 'noopener,noreferrer'); }
     };
 
     document.getElementById('clearAll').onclick = () => {
@@ -2153,7 +2171,7 @@ Réponds toujours en français sauf si l'utilisateur écrit en anglais.`;
     }
 
     function sandboxFor(a) {
-      let s = 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-pointer-lock allow-downloads allow-orientation-lock allow-presentation';
+      let s = 'allow-scripts allow-forms allow-popups allow-modals allow-pointer-lock allow-downloads allow-orientation-lock allow-presentation';
       if (a.allowStorage) s += ' allow-same-origin';
       return s;
     }
