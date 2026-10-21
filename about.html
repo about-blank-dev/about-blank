@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <meta name="about-blank-version" content="9.1">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>about:blank</title>
 
@@ -141,6 +142,9 @@
 
     #settingsMenu, #notesMenu { display: none; flex-direction: column; gap: 15px; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--card-border); }
     .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    #aboutUpdateBox { border-top: 1px solid var(--card-border); padding-top: 12px; }
+    #aboutUpdateBox button { width: 100%; }
+    #aboutUpdateStatus { min-height: 18px; margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 
     button { padding: 10px; border-radius: 8px; border: none; background: var(--accent); color: var(--btn-text); font-weight: 600; cursor: pointer; font-size: 13px; transition: transform 0.2s, filter 0.2s; }
     button.ghost { background: transparent; border: 1px solid var(--card-border); color: var(--text); }
@@ -797,6 +801,13 @@
             </div>
           </div>
         </div>
+        <div id="aboutUpdateBox">
+          <label id="aboutUpdateTitle" style="font-size: 11px; margin-bottom:5px; display:block;">Mise à jour</label>
+          <p id="aboutUpdateVersion" style="font-size:12px; color:var(--muted); margin:0 0 8px;">Version installée : 9.1</p>
+          <p id="aboutUpdateDescription" style="font-size:12px; color:var(--muted); margin:0 0 10px;">Récupère la version publiée sur GitHub et remplace le fichier about.html que tu sélectionnes. Le nom du fichier reste inchangé.</p>
+          <button class="ghost" id="aboutUpdateButton" type="button">Mettre à jour depuis GitHub</button>
+          <p id="aboutUpdateStatus" role="status" aria-live="polite"></p>
+        </div>
         <div id="accountBox">
           <label id="labelAccount" style="font-size: 11px; margin-bottom:8px; display:block;">Compte (messagerie et IA) :</label>
           <div id="accLoggedOut">
@@ -852,7 +863,8 @@
         accCreate: "Créer un compte", accSignIn: "Se connecter", accLogout: "Se déconnecter", accConnectedAs: "Connecté : {name}",
         accErrExists: "Email déjà utilisé.", accErrWeak: "Mot de passe trop court (6 caractères min).", accErrEmail: "Email invalide.",
         accErrCreds: "Email ou mot de passe incorrect.",
-        aiRetryOlder: "Réessayer avec un modèle antérieur", aiNoOlder: "Plus de modèle plus ancien disponible : essaie une autre IA (bouton à gauche)."
+        aiRetryOlder: "Réessayer avec un modèle antérieur", aiNoOlder: "Plus de modèle plus ancien disponible : essaie une autre IA (bouton à gauche).",
+        updateAboutTitle: "Mise à jour", updateAboutVersion: "Version installée : {version}", updateAboutDescription: "Récupère la version publiée sur GitHub et remplace le fichier about.html que tu sélectionnes. Le nom du fichier reste inchangé.", updateAboutButton: "Mettre à jour depuis GitHub", updateAboutUnsupported: "La mise à jour directe nécessite Chrome ou un navigateur compatible. Télécharge une nouvelle copie depuis le site si cette option est indisponible.", updateAboutFetchError: "Impossible de récupérer la version publiée depuis GitHub.", updateAboutInvalidFile: "Le fichier choisi ne semble pas être un fichier about.html valide.", updateAboutPermission: "L’accès en écriture au fichier a été refusé.", updateAboutConfirm: "Remplacer le contenu de « {name} » par la version {version} publiée sur GitHub ?", updateAboutSuccess: "Fichier mis à jour vers la version {version}. Son nom n’a pas changé.", updateAboutAlreadyCurrent: "Ce fichier indique déjà la version {version}.", updateAboutError: "La mise à jour a échoué. Le fichier n’a pas été confirmé comme mis à jour."
       },
       en: {
         title: "about:blank", titleSettings: "Settings", labelTheme: "Theme:", labelLang: "Language:", optSystem: "System", optDark: "Dark", optLight: "Light",
@@ -886,7 +898,8 @@
         accCreate: "Create an account", accSignIn: "Sign in", accLogout: "Sign out", accConnectedAs: "Signed in: {name}",
         accErrExists: "Email already in use.", accErrWeak: "Password too short (6 characters min).", accErrEmail: "Invalid email.",
         accErrCreds: "Wrong email or password.",
-        aiRetryOlder: "Retry with an older model", aiNoOlder: "No older model left: try another AI (button on the left)."
+        aiRetryOlder: "Retry with an older model", aiNoOlder: "No older model left: try another AI (button on the left).",
+        updateAboutTitle: "Update", updateAboutVersion: "Installed version: {version}", updateAboutDescription: "Fetches the release published on GitHub and replaces the about.html file you select. The file name stays unchanged.", updateAboutButton: "Update from GitHub", updateAboutUnsupported: "Direct update requires Chrome or a compatible browser. Download a new copy from the site if this option is unavailable.", updateAboutFetchError: "Could not fetch the published version from GitHub.", updateAboutInvalidFile: "The selected file does not appear to be a valid about.html file.", updateAboutPermission: "Write access to the file was denied.", updateAboutConfirm: "Replace the contents of “{name}” with version {version} published on GitHub?", updateAboutSuccess: "File updated to version {version}. Its name was not changed.", updateAboutAlreadyCurrent: "This file already reports version {version}.", updateAboutError: "The update failed. The file was not confirmed as updated."
       }
     };
 
@@ -1220,8 +1233,13 @@
 
     function applyLang(lang) {
       const t = translations[lang];
+      const version = document.querySelector('meta[name="about-blank-version"]').content;
       document.getElementById('title').textContent = t.title;
       document.getElementById('titleSettings').textContent = t.titleSettings;
+      document.getElementById('aboutUpdateTitle').textContent = t.updateAboutTitle;
+      document.getElementById('aboutUpdateVersion').textContent = t.updateAboutVersion.replace('{version}', version);
+      document.getElementById('aboutUpdateDescription').textContent = t.updateAboutDescription;
+      document.getElementById('aboutUpdateButton').textContent = t.updateAboutButton;
       document.getElementById('titleNote').textContent = t.titleNote;
       document.getElementById('clearNotes').textContent = t.clearNotes;
       document.getElementById('toggleNotes').textContent = notesHidden ? t.btnShow : t.btnHide;
@@ -1539,6 +1557,84 @@
 
     document.getElementById('clearAll').onclick = () => {
       if(confirm(translations[getStore('app_lang', '"fr"')].confirmReset)) { localStorage.clear(); (typeof wipeAppsData === 'function' ? wipeAppsData() : Promise.resolve()).then(() => location.reload()); }
+    };
+
+    const updateAboutButton = document.getElementById('aboutUpdateButton');
+    const updateAboutStatus = document.getElementById('aboutUpdateStatus');
+    const updateAboutUrl = 'https://raw.githubusercontent.com/about-blank-dev/about-blank/main/about.html';
+
+    function getAboutVersion(doc) {
+      const version = doc.querySelector('meta[name="about-blank-version"]')?.content || '';
+      return /^\d+\.\d+$/.test(version) ? version : '';
+    }
+
+    updateAboutButton.onclick = async () => {
+      const t = translations[getStore('app_lang', '"fr"')] || translations.fr;
+      if (typeof window.showOpenFilePicker !== 'function') {
+        updateAboutStatus.textContent = t.updateAboutUnsupported;
+        return;
+      }
+
+      updateAboutButton.disabled = true;
+      updateAboutStatus.textContent = t.updateAboutButton + '…';
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          multiple: false,
+          types: [{ description: 'about.html', accept: { 'text/html': ['.html', '.htm'] } }]
+        });
+        const selectedFile = await handle.getFile();
+        const selectedText = await selectedFile.text();
+        const selectedDoc = new DOMParser().parseFromString(selectedText, 'text/html');
+        if (selectedDoc.title !== 'about:blank' || !selectedDoc.getElementById('openModeSelect')) {
+          updateAboutStatus.textContent = t.updateAboutInvalidFile;
+          return;
+        }
+
+        const response = await fetch(updateAboutUrl + '?t=' + Date.now(), { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const latestHtml = await response.text();
+        const latestDoc = new DOMParser().parseFromString(latestHtml, 'text/html');
+        const latestVersion = getAboutVersion(latestDoc);
+        if (!latestVersion || latestDoc.title !== 'about:blank' || !latestDoc.getElementById('openModeSelect')) {
+          updateAboutStatus.textContent = t.updateAboutFetchError;
+          return;
+        }
+
+        const localVersion = getAboutVersion(selectedDoc);
+        if (localVersion === latestVersion) {
+          updateAboutStatus.textContent = t.updateAboutAlreadyCurrent.replace('{version}', latestVersion);
+          return;
+        }
+
+        let permission = await handle.queryPermission({ mode: 'readwrite' });
+        if (permission !== 'granted') permission = await handle.requestPermission({ mode: 'readwrite' });
+        if (permission !== 'granted') {
+          updateAboutStatus.textContent = t.updateAboutPermission;
+          return;
+        }
+
+        const currentTranslations = translations[getStore('app_lang', '"fr"')] || translations.fr;
+        const confirmMessage = currentTranslations.updateAboutConfirm
+          .replace('{name}', selectedFile.name)
+          .replace('{version}', latestVersion);
+        if (!confirm(confirmMessage)) return;
+
+        const writable = await handle.createWritable();
+        try {
+          await writable.write(latestHtml);
+          await writable.close();
+        } catch (error) {
+          await writable.abort().catch(() => {});
+          throw error;
+        }
+        updateAboutStatus.textContent = currentTranslations.updateAboutSuccess.replace('{version}', latestVersion);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('about.html update failed:', error);
+        updateAboutStatus.textContent = error.name === 'NotAllowedError' ? t.updateAboutPermission : t.updateAboutError;
+      } finally {
+        updateAboutButton.disabled = false;
+      }
     };
 
     const savedTheme = getStore('app_theme', '"system"');
